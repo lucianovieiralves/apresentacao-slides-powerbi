@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power BI Presentation Mode</title>
+    <style>
+        /* =========================================
+           RESET E VARIÁVEIS
+           ========================================= */
+        :root {
+            --bg-color: #0a0a0a;
+            --text-color: #e0e0e0;
+            --accent-color: #0078d4; /* Power Blue */
+            --accent-hover: #005a9e;
+            --control-bg: rgba(20, 20, 20, 0.85);
+            --border-radius: 8px;
+            --transition-speed: 0.5s;
+            --font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            overflow: hidden; /* Evita scroll na página principal */
+        }
+
+        /* =========================================
+           LAYOUT PRINCIPAL
+           ========================================= */
+        #app-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Container dos Slides */
+        #stage {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+
+        .slide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity var(--transition-speed) ease-in-out, visibility var(--transition-speed);
+            z-index: 1;
+        }
+
+        .slide.active {
+            opacity: 1;
+            visibility: visible;
+            z-index: 2;
+        }
+
+        /* Iframe do Power BI */
+        .slide iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* Placeholder para URLs inválidas/placeholder */
+        .slide-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #1a1a1a;
+            color: #666;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .slide-placeholder img {
+            max-width: 200px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        /* =========================================
+           TELA DE CARREGAMENTO E ERRO
+           ========================================= */
+        #loader-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #loader-overlay.visible {
+            opacity: 1;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: var(--accent-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        .loader-text {
+            margin-top: 15px;
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        /* Mensagem de Erro no Slide */
+        .slide-error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(50, 0, 0, 0.9);
+            color: #ffcccc;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            text-align: center;
+            z-index: 5;
+            display: none;
+            border: 1px solid #ff4444;
+        }
+
+        /* =========================================
+           BARRA DE PROGRESSO
+           ========================================= */
+        #progress-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        #progress-bar {
+            height: 100%;
+            background: var(--accent-color);
+            width: 0%;
+            transition: width linear; /* Definido via JS para ser preciso */
+        }
+
+        /* =========================================
+           CONTROLES DE APRESENTAÇÃO
+           ========================================= */
+        #controls-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--control-bg);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            z-index: 30;
+            transition: opacity 0.3s, transform 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            user-select: none;
+        }
+
+        /* Esconder controles no modo TV ou inatividade */
+        .hide-ui #controls-bar,
+        .hide-ui #admin-panel {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Garante que controles fiquem visíveis quando explicitamente ativados via JS */
+        #controls-bar.force-visible {
+            opacity: 1 !important;
+            pointer-events: all !important;
+        }
+
+        .btn-control {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+        }
+
+        .btn-control:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-control svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .slide-indicator {
+            font-size: 0.9rem;
+            color: #ccc;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        /* =========================================
+           PAINEL ADMINISTRATIVO
+           ========================================= */
+        #admin-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: var(--control-bg);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 40;
+            transition: opacity 0.3s;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .app-title {
+            font-weight: 600;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .app-title span {
+            color: var(--accent-color);
+        }
+
+        .admin-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .btn-secondary:hover {
+            border-color: #fff;
+        }
+
+        /* =========================================
+           MODAIS (Configurações e Slides)
+           ========================================= */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: #1e1e1e;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            border-radius: 8px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* Formulários e Listas */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #fff;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .slide-list {
+            list-style: none;
+            margin-top: 10px;
+        }
+
+        .slide-item {
+            background: #252525;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #333;
+        }
+
+        .slide-item-info {
+            flex-grow: 1;
+        }
+
+        .slide-item-title {
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+
+        .slide-item-url {
+            font-size: 0.8rem;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 400px;
+            display: block;
+        }
+
+        .slide-item-actions {
+            display: flex;
+            gap: 5px;
+            margin-left: 15px;
+        }
+
+        .btn-icon {
+            background: none;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+            padding: 5px;
+            font-size: 1.1rem;
+        }
+        
+        .btn-icon:hover { color: #fff; }
+        .btn-icon.delete:hover { color: #ff4444; }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* Checkbox Customizado */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 24px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #444;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--accent-color); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        /* Toasts */
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+        }
+        .toast {
+            background: #333;
+            color: #fff;
+            padding: 12px 20px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid var(--accent-color);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease-out forwards;
+            max-width: 300px;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        /* Utilitários */
+        .hidden { display: none !important; }
+        .text-small { font-size: 0.85rem; color: #888; margin-top: 5px; }
+
+    </style>
+</head>
+<body>
+
+    <!-- APP CONTAINER -->
+    <div id="app-container">
+        
+        <!-- PAINEL ADMINISTRATIVO (Topo) -->
+        <header id="admin-panel">
+            <div class="app-title">
+                <span>Power BI</span> Presentation Mode
+            </div>
+            <div class="admin-actions">
+                <button class="btn-secondary" onclick="App.openSlidesModal()">Gerenciar Slides</button>
+                <button class="btn-secondary" onclick="App.openSettingsModal()">⚙ Configurações</button>
+                <button class="btn-primary" onclick="App.togglePresentationMode()">INICIAR APRESENTAÇÃO</button>
+            </div>
+        </header>
+
+        <!-- STAGE (Palco dos Slides) -->
+        <main id="stage">
+            <!-- Slides serão injetados aqui via JS -->
+        </main>
+
+        <!-- OVERLAY DE LOADING -->
+        <div id="loader-overlay">
+            <div class="spinner"></div>
+            <div class="loader-text">Carregando dashboard...</div>
+        </div>
+
+        <!-- BARRA DE PROGRESSO -->
+        <div id="progress-container">
+            <div id="progress-bar"></div>
+        </div>
+
+        <!-- BARRA DE CONTROLES (Fundo) -->
+        <div id="controls-bar">
+            <button class="btn-control" title="Anterior (Seta Esq)" onclick="App.prevSlide()">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </button>
+            
+            <button class="btn-control" id="btn-play-pause" title="Play/Pause (Espaço)" onclick="App.togglePlay()">
+                <!-- Ícone Play ou Pause será definido via JS -->
+                <svg id="icon-play" viewBox="0 0 24 24" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+                <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+
+            <button class="btn-control" title="Próximo (Seta Dir)" onclick="App.nextSlide()">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </button>
+
+            <div class="slide-indicator" id="slide-indicator">1 / 5</div>
+
+            <button class="btn-control" title="Tela Cheia (F)" onclick="App.toggleFullscreen()">
+                <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- MODAL CONFIGURAÇÕES -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Configurações</h2>
+                <button class="btn-icon" onclick="App.closeModal('settings-modal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="toggle-row">
+                    <label>Reprodução Automática</label>
+                    <label class="switch">
+                        <input type="checkbox" id="cfg-autoplay">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-row">
+                    <label>Loop Infinito</label>
+                    <label class="switch">
+                        <input type="checkbox" id="cfg-loop">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-row">
+                    <label>Modo TV / Kiosk</label>
+                    <label class="switch">
+                        <input type="checkbox" id="cfg-kiosk">
+                        <span class="slider"></span>
+                    </label>
+                    <div class="text-small">Ativa: Auto-start, tela cheia e controles ocultos.</div>
+                </div>
+                <div class="toggle-row">
+                    <label>Exibir Controles</label>
+                    <label class="switch">
+                        <input type="checkbox" id="cfg-showControls">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>Duração Padrão (segundos)</label>
+                    <input type="number" id="cfg-defaultDuration" class="form-control" value="30">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="App.resetSettings()">Restaurar Padrão</button>
+                <button class="btn-primary" onclick="App.saveSettings()">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL SLIDES -->
+    <div id="slides-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Gerenciar Slides</h2>
+                <button class="btn-icon" onclick="App.closeModal('slides-modal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="slides-editor-container">
+                    <!-- Lista de slides renderizada aqui -->
+                </div>
+                <button class="btn-secondary" style="width:100%; margin-top:20px; border-style:dashed;" onclick="App.addNewSlide()">+ Adicionar Slide</button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="App.saveSlidesAndClose()">Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container"></div>
+
+    <script>
+        /**
+         * Power BI Presentation Mode
+         * Script único contendo toda a lógica da aplicação.
+         */
+
+        // Configuração Padrão Inicial
+        const DEFAULT_CONFIG = {
+            defaultDuration: 30, // segundos
+            autoplay: true,
+            loop: true,
+            showControls: true,
+            kioskMode: false
+        };
+
+        // Slides Exemplo Iniciais
+        const DEFAULT_SLIDES = [
+            {
+                id: 1,
+                title: "Dashboard Produção",
+                url: "https://app.powerbi.com/reportEmbed?reportId=8be4424c-5213-4cd7-92e7-bade6629f44a&autoAuth=true&ctid=37cd273a-1cec-4aae-a297-41480ea54f8d",
+                duration: 30000,
+                reloadOnReturn: false
+            },
+            {
+                id: 2,
+                title: "Dashboard Segurança",
+                url: "https://app.powerbi.com/reportEmbed?reportId=c27d83a3-6d95-4bfa-9bde-27bcf287eb81&autoAuth=true&ctid=37cd273a-1cec-4aae-a297-41480ea54f8d",
+                duration: 30000,
+                reloadOnReturn: false
+            },
+            {
+                id: 3,
+                title: "Dashboard Qualidade",
+                url: "https://app.powerbi.com/reportEmbed?reportId=39d2cd29-b9b2-4053-867c-0ba14c50e12e&autoAuth=true&ctid=37cd273a-1cec-4aae-a297-41480ea54f8d",
+                duration: 30000,
+                reloadOnReturn: false
+            }
+        ];
+
+        const App = (function() {
+            // Estado da Aplicação
+            let state = {
+                slides: [],
+                config: {},
+                currentIndex: 0,
+                isPlaying: false,
+                isPresentationMode: false,
+                timer: null,
+                timerStartTime: 0,
+                timerRemaining: 0,
+                mouseIdleTimer: null,
+                iframeLoadTimeout: null
+            };
+
+            // Elementos DOM Cache
+            const dom = {
+                stage: document.getElementById('stage'),
+                progressBar: document.getElementById('progress-bar'),
+                controlsBar: document.getElementById('controls-bar'),
+                adminPanel: document.getElementById('admin-panel'),
+                slideIndicator: document.getElementById('slide-indicator'),
+                iconPlay: document.getElementById('icon-play'),
+                iconPause: document.getElementById('icon-pause'),
+                loader: document.getElementById('loader-overlay'),
+                appContainer: document.getElementById('app-container'),
+                inputs: {
+                    autoplay: document.getElementById('cfg-autoplay'),
+                    loop: document.getElementById('cfg-loop'),
+                    kiosk: document.getElementById('cfg-kiosk'),
+                    showControls: document.getElementById('cfg-showControls'),
+                    duration: document.getElementById('cfg-defaultDuration')
+                }
+            };
+
+            // ============================
+            // INICIALIZAÇÃO
+            // ============================
+            function init() {
+                loadData();
+                setupEventListeners();
+                
+                // Se estiver no modo Kiosk, inicia direto
+                if (state.config.kioskMode) {
+                    togglePresentationMode(true); // true = force start
+                } else {
+                    renderSlidesDOM();
+                    // Carrega o primeiro slide mas não inicia timer
+                    loadSlide(0);
+                }
+            }
+
+            function loadData() {
+                // Carregar Config
+                const savedConfig = localStorage.getItem('pbi_config');
+                state.config = savedConfig ? JSON.parse(savedConfig) : { ...DEFAULT_CONFIG };
+
+                // Carregar Slides
+                const savedSlides = localStorage.getItem('pbi_slides');
+                state.slides = savedSlides ? JSON.parse(savedSlides) : JSON.parse(JSON.stringify(DEFAULT_SLIDES));
+                
+                // Garante integridade dos dados
+                if(state.slides.length === 0) state.slides = JSON.parse(JSON.stringify(DEFAULT_SLIDES));
+            }
+
+            // ============================
+            // LÓGICA DE SLIDES
+            // ============================
+            function renderSlidesDOM() {
+                dom.stage.innerHTML = '';
+                state.slides.forEach((slide, index) => {
+                    const slideDiv = document.createElement('div');
+                    slideDiv.className = 'slide';
+                    slideDiv.id = `slide-${index}`;
+                    
+                    let iframe = null;
+
+                    // Verifica se é uma URL válida ou placeholder
+                    if (isValidUrl(slide.url)) {
+                        iframe = document.createElement('iframe');
+                        iframe.setAttribute('allowfullscreen', '');
+                        iframe.setAttribute('scrolling', 'no');
+                        // Atributo para rastrear estado de carregamento
+                        iframe.setAttribute('data-loaded', 'false'); 
+                        
+                        // Importante: definir onload antes do src para evitar race condition
+                        iframe.onload = () => {
+                            iframe.setAttribute('data-loaded', 'true');
+                            handleIframeLoad(index);
+                        };
+                        
+                        // Correção para controles: Detectar quando mouse entra no iframe
+                        iframe.onmouseenter = () => {
+                            if (state.isPresentationMode && !state.config.kioskMode) {
+                                showControlsTemporarily();
+                            }
+                        };
+                        
+                        iframe.onerror = () => handleIframeError(index);
+                        iframe.src = slide.url;
+                        slideDiv.appendChild(iframe);
+                    } else {
+                        // Placeholder visual
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'slide-placeholder';
+                        placeholder.innerHTML = `
+                            <img src="https://picsum.photos/seed/bi${index}/200/200" alt="Placeholder">
+                            <h3>${slide.title}</h3>
+                            <p>Configure a URL do Power BI nas configurações.</p>
+                            <p><small>${slide.url}</small></p>
+                        `;
+                        slideDiv.appendChild(placeholder);
+                    }
+
+                    // Div de erro (oculta por padrão)
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'slide-error';
+                    errorDiv.id = `error-${index}`;
+                    errorDiv.innerHTML = `Não foi possível carregar este dashboard.<br>
+                                    <small>Verifique a conexão ou permissões de incorporação (X-Frame-Options).</small>`;
+                    slideDiv.appendChild(errorDiv);
+
+                    dom.stage.appendChild(slideDiv);
+                });
+            }
+
+            function loadSlide(index) {
+                // === CORREÇÃO DO LOOP INFINITO ===
+                // Normaliza o índice baseado nas configurações de loop
+                let nextIndex = index;
+
+                if (nextIndex >= state.slides.length) {
+                    if (state.config.loop) {
+                        nextIndex = 0;
+                    } else {
+                        stopPresentation();
+                        return; // Para a apresentação se não tiver loop
+                    }
+                } else if (nextIndex < 0) {
+                    if (state.config.loop) {
+                        nextIndex = state.slides.length - 1;
+                    } else {
+                        nextIndex = 0; // Se voltar antes do primeiro, fica no primeiro
+                    }
+                }
+                // ==================================
+
+                const prevIndex = state.currentIndex;
+                state.currentIndex = nextIndex;
+                const currentSlide = state.slides[nextIndex];
+
+                // Atualiza indicadores
+                updateUI();
+
+                // Gerenciamento de DOM e Transição
+                const prevSlideEl = document.getElementById(`slide-${prevIndex}`);
+                const currSlideEl = document.getElementById(`slide-${nextIndex}`);
+
+                if (prevSlideEl) prevSlideEl.classList.remove('active');
+                
+                let shouldShowLoader = false;
+                const iframe = currSlideEl ? currSlideEl.querySelector('iframe') : null;
+
+                // Lógica de Loading (Melhorada)
+                if (iframe) {
+                    if (currentSlide.reloadOnReturn && prevIndex !== nextIndex) {
+                        // Força recarga
+                        shouldShowLoader = true;
+                        iframe.setAttribute('data-loaded', 'false');
+                        const currentSrc = iframe.src;
+                        iframe.src = 'about:blank';
+                        setTimeout(() => {
+                            iframe.src = currentSrc;
+                        }, 50);
+                    } else {
+                        // Verifica se já está carregado na memória
+                        const isLoaded = iframe.getAttribute('data-loaded') === 'true';
+                        if (!isLoaded) {
+                            shouldShowLoader = true;
+                        }
+                        // Se isLoaded == true, shouldShowLoader continua false (não mostra nada)
+                    }
+                }
+
+                currSlideEl.classList.add('active');
+
+                if (shouldShowLoader) {
+                    showLoader();
+                } else {
+                    hideLoader();
+                }
+
+                // Reinicia Timer
+                if (state.isPlaying) {
+                    startTimer(currentSlide.duration || (state.config.defaultDuration * 1000));
+                } else {
+                    // Se pausado, apenas barra zerada
+                    dom.progressBar.style.width = '0%';
+                }
+            }
+
+            function nextSlide() {
+                loadSlide(state.currentIndex + 1);
+            }
+
+            function prevSlide() {
+                loadSlide(state.currentIndex - 1);
+            }
+
+            // ============================
+            // TEMPORIZADOR E PROGRESSO
+            // ============================
+            function startTimer(duration) {
+                stopTimer(); // Limpa anterior
+                
+                const totalDuration = parseInt(duration) || (state.config.defaultDuration * 1000);
+                
+                // Animação da barra via CSS transition
+                dom.progressBar.style.transition = 'none';
+                dom.progressBar.style.width = '0%';
+                
+                // Force reflow
+                void dom.progressBar.offsetWidth;
+
+                dom.progressBar.style.transition = `width ${totalDuration}ms linear`;
+                dom.progressBar.style.width = '100%';
+
+                state.timer = setTimeout(() => {
+                    nextSlide();
+                }, totalDuration);
+            }
+
+            function stopTimer() {
+                if (state.timer) clearTimeout(state.timer);
+                dom.progressBar.style.transition = 'none';
+                dom.progressBar.style.width = '0%';
+            }
+
+            // ============================
+            // CONTROLES DE ESTADO
+            // ============================
+            function togglePlay() {
+                state.isPlaying = !state.isPlaying;
+                updatePlayButton();
+                
+                if (state.isPlaying) {
+                    startTimer(state.slides[state.currentIndex].duration || (state.config.defaultDuration * 1000));
+                } else {
+                    stopTimer();
+                }
+            }
+
+            function startPresentation() {
+                state.isPlaying = true;
+                updatePlayButton();
+                loadSlide(state.currentIndex); // Reinicia timer do slide atual
+            }
+
+            function stopPresentation() {
+                state.isPlaying = false;
+                updatePlayButton();
+                stopTimer();
+            }
+
+            function togglePresentationMode(forceStart = false) {
+                state.isPresentationMode = !state.isPresentationMode;
+                
+                if (state.isPresentationMode || forceStart === true) {
+                    document.body.classList.add('hide-ui');
+                    state.isPlaying = true; // Auto-play ao entrar
+                    updatePlayButton();
+                    
+                    // Se for Kiosk, tenta tela cheia
+                    if (state.config.kioskMode) {
+                        requestFullscreen();
+                        startPresentation(); // Garante início
+                    } else {
+                        // Modo apresentação normal: pode ou não iniciar play, vamos assumir sim
+                        startPresentation();
+                    }
+                } else {
+                    document.body.classList.remove('hide-ui');
+                    state.isPlaying = false;
+                    stopPresentation();
+                    exitFullscreen();
+                }
+            }
+
+            // ============================
+            // UI E EVENTOS
+            // ============================
+            function updateUI() {
+                dom.slideIndicator.textContent = `${state.currentIndex + 1} / ${state.slides.length}`;
+            }
+
+            function updatePlayButton() {
+                if (state.isPlaying) {
+                    dom.iconPlay.style.display = 'none';
+                    dom.iconPause.style.display = 'block';
+                } else {
+                    dom.iconPlay.style.display = 'block';
+                    dom.iconPause.style.display = 'none';
+                }
+            }
+
+            function showLoader() {
+                dom.loader.classList.add('visible');
+                // Timeout de segurança caso o iframe nunca dispare onload (ex: bloqueado por rede)
+                if (state.iframeLoadTimeout) clearTimeout(state.iframeLoadTimeout);
+                state.iframeLoadTimeout = setTimeout(() => {
+                    dom.loader.classList.remove('visible');
+                }, 10000); // 10s max loading visual
+            }
+
+            function hideLoader() {
+                dom.loader.classList.remove('visible');
+            }
+
+            function handleIframeLoad(index) {
+                // Só esconde se for o slide atual
+                if (index === state.currentIndex) {
+                    hideLoader();
+                }
+            }
+            
+            function handleIframeError(index) {
+                // Tenta mostrar erro
+                const errorDiv = document.getElementById(`error-${index}`);
+                if(errorDiv) errorDiv.style.display = 'block';
+                hideLoader();
+            }
+
+            function toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    requestFullscreen();
+                } else {
+                    exitFullscreen();
+                }
+            }
+
+            function requestFullscreen() {
+                const elem = document.documentElement;
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen(); // Safari
+            }
+
+            function exitFullscreen() {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+
+            function showControlsTemporarily() {
+                dom.controlsBar.classList.remove('force-visible');
+                void dom.controlsBar.offsetWidth; // reflow
+                dom.controlsBar.classList.add('force-visible');
+                dom.controlsBar.style.opacity = '1';
+                dom.controlsBar.style.pointerEvents = 'all';
+
+                clearTimeout(state.mouseIdleTimer);
+                state.mouseIdleTimer = setTimeout(() => {
+                    dom.controlsBar.classList.remove('force-visible');
+                    dom.controlsBar.style.opacity = '';
+                    dom.controlsBar.style.pointerEvents = '';
+                }, 3000);
+            }
+
+            function setupEventListeners() {
+                // Mouse move (usando window para capturar melhor)
+                window.addEventListener('mousemove', () => {
+                    if (state.isPresentationMode && !state.config.kioskMode) {
+                        showControlsTemporarily();
+                    }
+                });
+
+                // Teclado
+                document.addEventListener('keydown', (e) => {
+                    // Ignorar se estiver em inputs de texto
+                    if (e.target.tagName === 'INPUT') return;
+
+                    switch(e.key) {
+                        case 'ArrowRight':
+                            nextSlide();
+                            break;
+                        case 'ArrowLeft':
+                            prevSlide();
+                            break;
+                        case ' ': // Espaço
+                            e.preventDefault();
+                            togglePlay();
+                            break;
+                        case 'f':
+                        case 'F':
+                            toggleFullscreen();
+                            break;
+                        case 'Escape':
+                            if (state.isPresentationMode && !state.config.kioskMode) {
+                                togglePresentationMode(); // Sai do modo apresentação
+                            }
+                            break;
+                        case 'Home':
+                            loadSlide(0);
+                            break;
+                        case 'End':
+                            loadSlide(state.slides.length - 1);
+                            break;
+                    }
+                });
+
+                // Visibility API (Pausar quando aba inativa)
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        if (state.isPlaying) {
+                            stopTimer(); // Pausa timer, mas mantém estado isPlaying
+                        }
+                    } else {
+                        if (state.isPlaying) {
+                            startTimer(state.slides[state.currentIndex].duration || (state.config.defaultDuration * 1000));
+                        }
+                    }
+                });
+            }
+
+            // ============================
+            // GERENCIAMENTO DE DADOS (Admin)
+            // ============================
+            
+            // --- Settings ---
+            function openSettingsModal() {
+                // Popula inputs
+                dom.inputs.autoplay.checked = state.config.autoplay;
+                dom.inputs.loop.checked = state.config.loop;
+                dom.inputs.kiosk.checked = state.config.kioskMode;
+                dom.inputs.showControls.checked = state.config.showControls;
+                dom.inputs.duration.value = state.config.defaultDuration;
+                
+                document.getElementById('settings-modal').classList.add('open');
+            }
+
+            function saveSettings() {
+                state.config = {
+                    defaultDuration: parseInt(dom.inputs.duration.value),
+                    autoplay: dom.inputs.autoplay.checked,
+                    loop: dom.inputs.loop.checked,
+                    kioskMode: dom.inputs.kiosk.checked,
+                    showControls: dom.inputs.showControls.checked
+                };
+                localStorage.setItem('pbi_config', JSON.stringify(state.config));
+                closeModal('settings-modal');
+                showToast('Configurações salvas!');
+            }
+            
+            function resetSettings() {
+                localStorage.removeItem('pbi_config');
+                state.config = { ...DEFAULT_CONFIG };
+                openSettingsModal(); // recarrega inputs
+            }
+
+            // --- Slides CRUD ---
+            let editingSlides = []; // Cópia local para edição
+
+            function openSlidesModal() {
+                editingSlides = JSON.parse(JSON.stringify(state.slides)); // Deep copy
+                renderSlideEditorList();
+                document.getElementById('slides-modal').classList.add('open');
+            }
+
+            function renderSlideEditorList() {
+                const container = document.getElementById('slides-editor-container');
+                container.innerHTML = '<ul class="slide-list">' + 
+                    editingSlides.map((slide, idx) => `
+                        <li class="slide-item">
+                            <div class="slide-item-info">
+                                <div class="slide-item-title">${idx + 1}. ${escapeHtml(slide.title)}</div>
+                                <span class="slide-item-url">${escapeHtml(slide.url)}</span>
+                            </div>
+                            <div class="slide-item-actions">
+                                <button class="btn-icon" onclick="App.editSlide(${idx})" title="Editar">✎</button>
+                                <button class="btn-icon" onclick="App.moveSlide(${idx}, -1)" title="Mover para cima">↑</button>
+                                <button class="btn-icon" onclick="App.moveSlide(${idx}, 1)" title="Mover para baixo">↓</button>
+                                <button class="btn-icon delete" onclick="App.deleteSlide(${idx})" title="Excluir">🗑</button>
+                            </div>
+                        </li>
+                    `).join('') + 
+                    '</ul>';
+            }
+
+            function addNewSlide() {
+                editingSlides.push({
+                    title: "Novo Dashboard",
+                    url: "",
+                    duration: state.config.defaultDuration * 1000,
+                    reloadOnReturn: false
+                });
+                renderSlideEditorList();
+                // Editar o último imediatamente
+                editSlide(editingSlides.length - 1);
+            }
+
+            function editSlide(index) {
+                const slide = editingSlides[index];
+                const title = prompt("Título do Slide:", slide.title);
+                if (title !== null) {
+                    const url = prompt("URL do Power BI:", slide.url);
+                    if (url !== null) {
+                        const duration = prompt("Duração (milissegundos):", slide.duration);
+                        if (duration !== null) {
+                            slide.title = title;
+                            slide.url = url;
+                            renderSlideEditorList();
+                        }
+                    }
+                }
+            }
+
+            function deleteSlide(index) {
+                if(confirm("Tem certeza que deseja excluir este slide?")) {
+                    editingSlides.splice(index, 1);
+                    renderSlideEditorList();
+                }
+            }
+
+            function moveSlide(index, direction) {
+                const newIndex = index + direction;
+                if (newIndex < 0 || newIndex >= editingSlides.length) return;
+                
+                // Troca
+                [editingSlides[index], editingSlides[newIndex]] = [editingSlides[newIndex], editingSlides[index]];
+                renderSlideEditorList();
+            }
+
+            function saveSlidesAndClose() {
+                state.slides = editingSlides;
+                localStorage.setItem('pbi_slides', JSON.stringify(state.slides));
+                
+                // Re-renderiza a palco
+                renderSlidesDOM();
+                loadSlide(0); // Volta ao início
+                closeModal('slides-modal');
+                showToast('Lista de slides atualizada!');
+            }
+
+            // ============================
+            // HELPERS
+            // ============================
+            function closeModal(id) {
+                document.getElementById(id).classList.remove('open');
+            }
+
+            function showToast(msg) {
+                const toast = document.createElement('div');
+                toast.className = 'toast';
+                toast.textContent = msg;
+                document.getElementById('toast-container').appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+            }
+
+            function isValidUrl(string) {
+                try {
+                    new URL(string);
+                    return string.includes('http'); // básico para evitar strings vazias
+                } catch (_) {
+                    return false;
+                }
+            }
+
+            function escapeHtml(text) {
+                if (!text) return "";
+                return text
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+
+            // API Pública
+            return {
+                init,
+                nextSlide,
+                prevSlide,
+                togglePlay,
+                toggleFullscreen,
+                togglePresentationMode,
+                openSettingsModal,
+                saveSettings,
+                resetSettings,
+                openSlidesModal,
+                addNewSlide,
+                editSlide,
+                deleteSlide,
+                moveSlide,
+                saveSlidesAndClose,
+                closeModal
+            };
+
+        })();
+
+        // Iniciar Aplicação
+        document.addEventListener('DOMContentLoaded', App.init);
+
+    </script>
+</body>
+</html>
